@@ -1,0 +1,1 @@
+# Manual invoice smoke test

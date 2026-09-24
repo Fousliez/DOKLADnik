@@ -650,6 +650,85 @@ class Repository:
             ]
             return result
 
+    def list_assignable_invoices(self, job_id: int | None = None) -> list[dict]:
+        """Faktury bez zakázky + faktura už navázaná na právě editovanou zakázku."""
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT i.id, i.number, i.issue_date, i.buyer_name, i.job_id,
+                       COALESCE(SUM(ii.total_cents), 0) AS total_cents
+                FROM invoices i
+                LEFT JOIN invoice_items ii ON ii.invoice_id=i.id
+                WHERE i.deleted_at IS NULL
+                  AND (i.job_id IS NULL OR i.job_id=?)
+                GROUP BY i.id
+                ORDER BY i.issue_date DESC, i.id DESC
+                """,
+                (job_id,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def assign_invoice_to_job(self, job_id: int, invoice_id: int | None) -> None:
+        """Bezpečně změní vazbu faktury na zakázku; cizí navázanou fakturu odmítne."""
+        with self.db.transaction() as conn:
+            job = conn.execute(
+                "SELECT * FROM jobs WHERE id=? AND deleted_at IS NULL",
+                (job_id,),
+            ).fetchone()
+            if not job:
+                raise KeyError("Zakázka neexistuje.")
+
+            current = conn.execute(
+                "SELECT * FROM invoices WHERE job_id=? AND deleted_at IS NULL",
+                (job_id,),
+            ).fetchone()
+
+            if invoice_id is not None:
+                target = conn.execute(
+                    "SELECT * FROM invoices WHERE id=? AND deleted_at IS NULL",
+                    (invoice_id,),
+                ).fetchone()
+                if not target:
+                    raise KeyError("Vybraná faktura neexistuje.")
+                if target["job_id"] not in (None, job_id):
+                    raise ValueError("Tato faktura už patří k jiné zakázce.")
+            else:
+                target = None
+
+            if current and (target is None or int(current["id"]) != int(target["id"])):
+                before = dict(current)
+                conn.execute(
+                    "UPDATE invoices SET job_id=NULL, updated_at=? WHERE id=?",
+                    (now_iso(), current["id"]),
+                )
+                after = row_dict(
+                    conn.execute("SELECT * FROM invoices WHERE id=?", (current["id"],)).fetchone()
+                )
+                self._audit(conn, "invoice", int(current["id"]), "UPDATE", before, after)
+
+            if target and (current is None or int(current["id"]) != int(target["id"])):
+                before = dict(target)
+                conn.execute(
+                    "UPDATE invoices SET job_id=?, updated_at=? WHERE id=?",
+                    (job_id, now_iso(), invoice_id),
+                )
+                after = row_dict(
+                    conn.execute("SELECT * FROM invoices WHERE id=?", (invoice_id,)).fetchone()
+                )
+                self._audit(conn, "invoice", int(invoice_id), "UPDATE", before, after)
+
+            desired_document = "INVOICE" if target is not None else job["document_type"]
+            if target is not None and job["document_type"] != "INVOICE":
+                before_job = dict(job)
+                conn.execute(
+                    "UPDATE jobs SET document_type='INVOICE', updated_at=? WHERE id=?",
+                    (now_iso(), job_id),
+                )
+                after_job = row_dict(
+                    conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+                )
+                self._audit(conn, "job", job_id, "UPDATE", before_job, after_job)
+
     def list_invoices(
         self, activity: str = "ALL", search: str = "", include_deleted: bool = False
     ) -> list[dict]:

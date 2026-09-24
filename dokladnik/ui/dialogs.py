@@ -782,5 +782,6 @@ class InvoiceDialog(QDialog):
                 else ""
             ),
             "note": self.note.toPlainText().strip(),
+            "qr_payment": self.qr_payment.isChecked(),
         }
         return data, items

@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterator
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def now_iso() -> str:
@@ -67,10 +67,16 @@ class Database:
             if current < 1:
                 self._migration_1(conn)
                 conn.execute(
-                    "INSERT OR REPLACE INTO schema_meta(key, value) VALUES('schema_version', ?)",
-                    (str(SCHEMA_VERSION),),
+                    "INSERT OR REPLACE INTO schema_meta(key, value) VALUES('schema_version', '1')"
                 )
-                current = SCHEMA_VERSION
+                current = 1
+
+            if current < 2:
+                self._migration_2(conn)
+                conn.execute(
+                    "INSERT OR REPLACE INTO schema_meta(key, value) VALUES('schema_version', '2')"
+                )
+                current = 2
 
             if current > SCHEMA_VERSION:
                 raise RuntimeError(
@@ -231,6 +237,18 @@ class Database:
         conn.executemany(
             "INSERT OR IGNORE INTO app_settings(key, value) VALUES (?, ?)",
             settings.items(),
+        )
+
+    def _migration_2(self, conn: sqlite3.Connection) -> None:
+        columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(invoices)").fetchall()
+        }
+        if "qr_payment" not in columns:
+            conn.execute(
+                "ALTER TABLE invoices ADD COLUMN qr_payment INTEGER NOT NULL DEFAULT 0"
+            )
+        conn.execute(
+            "INSERT OR IGNORE INTO app_settings(key, value) VALUES('seller_iban', '')"
         )
 
     def integrity_check(self) -> str:

@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
 from ..backup import create_backup
 from ..invoice_pdf import generate_invoice_pdf
 from ..paths import backup_dir, export_dir
+from ..qr_payment import normalize_iban, validate_iban
 from .common import (
     ACTIVITY_LABELS,
     DOCUMENT_LABELS,
@@ -772,6 +773,7 @@ class SettingsWidget(QWidget):
             ("seller_phone", "Telefon"),
             ("seller_email", "E-mail"),
             ("seller_bank_account", "Bankovní účet"),
+            ("seller_iban", "IBAN pro QR platbu"),
         ]
         for key, label in definitions:
             edit = QLineEdit()
@@ -845,6 +847,15 @@ class SettingsWidget(QWidget):
 
     def save(self) -> None:
         values = {key: edit.text().strip() for key, edit in self.fields.items()}
+        iban = normalize_iban(values.get("seller_iban", ""))
+        if iban and not validate_iban(iban):
+            QMessageBox.warning(
+                self,
+                "Nastavení",
+                "Zadaný IBAN není platný. Oprav ho, nebo pole nech prázdné a použij český účet.",
+            )
+            return
+        values["seller_iban"] = iban
         values["invoice_due_days"] = str(self.due_days.value())
         values["invoice_number_digits"] = str(self.number_digits.value())
         self.repo.save_settings(values)

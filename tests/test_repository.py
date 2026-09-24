@@ -124,6 +124,39 @@ class RepositoryTest(unittest.TestCase):
         invoice = self.repo.get_invoice(invoice_id)
         self.assertEqual(invoice["job_id"], second_job)
 
+    def test_manual_invoice_creation(self):
+        draft = self.repo.new_invoice_draft()
+        self.assertEqual(draft["number"], "2026-001")
+        self.assertEqual(len(self.repo.list_invoices()), 0)
+
+        invoice_id = self.repo.create_invoice(
+            {
+                "number": draft["number"],
+                "issue_date": "2026-09-24",
+                "due_date": "2026-10-08",
+                "buyer_name": "Ruční faktura",
+                "buyer_address": "Test 1",
+                "buyer_ico": "",
+                "buyer_dic": "",
+                "payment_method": "BANK",
+                "payment_status": "UNPAID",
+                "paid_at": "",
+                "note": "",
+            },
+            [
+                {
+                    "description": "Služba",
+                    "quantity": 1,
+                    "unit": "ks",
+                    "unit_price_cents": 150000,
+                }
+            ],
+        )
+        invoice = self.repo.get_invoice(invoice_id)
+        self.assertIsNone(invoice["job_id"])
+        self.assertEqual(invoice["number"], "2026-001")
+        self.assertEqual(invoice["total_cents"], 150000)
+
 
 if __name__ == "__main__":
     unittest.main()

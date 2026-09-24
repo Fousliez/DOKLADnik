@@ -70,6 +70,44 @@ class UiSmokeTest(unittest.TestCase):
         job_dialog.close()
         invoice_dialog.close()
 
+    def test_invoice_pdf_with_qr_payment(self):
+        self.repo.save_settings(
+            {
+                "seller_name": "Test dodavatel",
+                "seller_bank_account": "",
+                "seller_iban": "CZ9106000000000000000123",
+            }
+        )
+        draft = self.repo.new_invoice_draft()
+        invoice_id = self.repo.create_invoice(
+            {
+                "number": draft["number"],
+                "issue_date": "2026-09-24",
+                "due_date": "2026-10-08",
+                "buyer_name": "QR klient",
+                "buyer_address": "Test 1",
+                "buyer_ico": "",
+                "buyer_dic": "",
+                "payment_method": "BANK",
+                "payment_status": "UNPAID",
+                "paid_at": "",
+                "note": "",
+                "qr_payment": True,
+            },
+            [
+                {
+                    "description": "Služba",
+                    "quantity": 1,
+                    "unit": "ks",
+                    "unit_price_cents": 45000,
+                }
+            ],
+        )
+        target = Path(self.tmp.name) / "invoice-qr.pdf"
+        generate_invoice_pdf(self.repo, invoice_id, target)
+        self.assertTrue(target.exists())
+        self.assertGreater(target.stat().st_size, 0)
+
     def test_invoice_pdf(self):
         _job_id, invoice_id = self._seed_invoice()
         target = Path(self.tmp.name) / "invoice.pdf"

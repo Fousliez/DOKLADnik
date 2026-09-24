@@ -24,7 +24,7 @@ JOB_FIELDS = [
 INVOICE_FIELDS = [
     "number", "issue_date", "due_date", "buyer_name", "buyer_address",
     "buyer_ico", "buyer_dic", "payment_method", "payment_status", "paid_at",
-    "note",
+    "note", "qr_payment",
 ]
 
 
@@ -520,6 +520,7 @@ class Repository:
             "payment_status": "UNPAID",
             "paid_at": None,
             "note": "",
+            "qr_payment": False,
             "items": [],
         }
 
@@ -529,8 +530,9 @@ class Repository:
             raise ValueError("Faktura musí mít alespoň jednu položku.")
 
         values = {k: data.get(k) for k in INVOICE_FIELDS}
+        values["qr_payment"] = int(bool(values.get("qr_payment")))
         for key in INVOICE_FIELDS:
-            if values[key] is None:
+            if key != "qr_payment" and values[key] is None:
                 values[key] = ""
         values["number"] = str(values["number"] or "").strip()
         if not values["number"]:
@@ -843,8 +845,9 @@ class Repository:
         if not items:
             raise ValueError("Faktura musí mít alespoň jednu položku.")
         values = {k: data.get(k) for k in INVOICE_FIELDS}
+        values["qr_payment"] = int(bool(values.get("qr_payment")))
         for key in INVOICE_FIELDS:
-            if values[key] is None:
+            if key != "qr_payment" and values[key] is None:
                 values[key] = ""
         if not str(values["number"]).strip():
             raise ValueError("Faktura musí mít číslo.")

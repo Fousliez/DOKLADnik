@@ -498,38 +498,78 @@ class Repository:
             if own:
                 conn.close()
 
-    def create_blank_invoice(self) -> int:
-        """Vytvoří samostatnou fakturu bez vazby na zakázku."""
-        with self.db.transaction() as conn:
-            today = date.today()
-            due_row = conn.execute(
-                "SELECT value FROM app_settings WHERE key='invoice_due_days'"
-            ).fetchone()
-            try:
-                due_days = int(due_row[0]) if due_row else 14
-            except ValueError:
-                due_days = 14
+    def new_invoice_draft(self) -> dict:
+        """Vrátí předvyplněnou novou fakturu bez zápisu do databáze."""
+        today = date.today()
+        try:
+            due_days = int(self.get_setting("invoice_due_days", "14"))
+        except ValueError:
+            due_days = 14
+        return {
+            "id": None,
+            "number": self.next_invoice_number(today.year),
+            "job_id": None,
+            "client_id": None,
+            "issue_date": today.isoformat(),
+            "due_date": (today + timedelta(days=due_days)).isoformat(),
+            "buyer_name": "",
+            "buyer_address": "",
+            "buyer_ico": "",
+            "buyer_dic": "",
+            "payment_method": "BANK",
+            "payment_status": "UNPAID",
+            "paid_at": None,
+            "note": "",
+            "items": [],
+        }
 
-            number = self.next_invoice_number(today.year, conn)
+    def create_invoice(self, data: dict, items: list[dict]) -> int:
+        """Uloží ručně vytvořenou samostatnou fakturu."""
+        if not items:
+            raise ValueError("Faktura musí mít alespoň jednu položku.")
+
+        values = {k: data.get(k) for k in INVOICE_FIELDS}
+        for key in INVOICE_FIELDS:
+            if values[key] is None:
+                values[key] = ""
+        values["number"] = str(values["number"] or "").strip()
+        if not values["number"]:
+            raise ValueError("Faktura musí mít číslo.")
+
+        with self.db.transaction() as conn:
+            exists = conn.execute(
+                "SELECT 1 FROM invoices WHERE number=?",
+                (values["number"],),
+            ).fetchone()
+            if exists:
+                raise ValueError(f"Faktura {values['number']} už existuje.")
+
             stamp = now_iso()
+            columns = ", ".join(INVOICE_FIELDS + ["created_at", "updated_at"])
+            placeholders = ", ".join(["?"] * (len(INVOICE_FIELDS) + 2))
             cur = conn.execute(
-                """
-                INSERT INTO invoices(
-                    number, job_id, client_id, issue_date, due_date,
-                    buyer_name, buyer_address, buyer_ico, buyer_dic,
-                    payment_method, payment_status, paid_at, note,
-                    created_at, updated_at
-                ) VALUES (?, NULL, NULL, ?, ?, '', '', '', '', 'BANK', 'UNPAID', NULL, '', ?, ?)
-                """,
-                (
-                    number,
-                    today.isoformat(),
-                    (today + timedelta(days=due_days)).isoformat(),
-                    stamp,
-                    stamp,
-                ),
+                f"INSERT INTO invoices({columns}) VALUES ({placeholders})",
+                [values[k] for k in INVOICE_FIELDS] + [stamp, stamp],
             )
             invoice_id = int(cur.lastrowid)
+
+            for pos, item in enumerate(items, start=1):
+                quantity = float(item.get("quantity") or 1)
+                unit_price = int(item.get("unit_price_cents") or 0)
+                total = int(round(quantity * unit_price))
+                conn.execute(
+                    """
+                    INSERT INTO invoice_items(
+                        invoice_id, position, description, quantity, unit,
+                        unit_price_cents, total_cents
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        invoice_id, pos * 10, str(item.get("description") or ""),
+                        quantity, str(item.get("unit") or "ks"), unit_price, total,
+                    ),
+                )
+
             after = row_dict(
                 conn.execute("SELECT * FROM invoices WHERE id=?", (invoice_id,)).fetchone()
             )

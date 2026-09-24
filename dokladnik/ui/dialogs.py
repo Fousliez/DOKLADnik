@@ -177,8 +177,8 @@ class JobDialog(QDialog):
         self.job = job or {}
         self._loading = True
         self.setWindowTitle("Zakázka")
-        self.resize(1040, 820)
-        self.setMinimumSize(820, 650)
+        self.resize(1040, 800)
+        self.setMinimumSize(820, 620)
 
         outer = QVBoxLayout(self)
 
@@ -228,8 +228,8 @@ class JobDialog(QDialog):
         basic_form.addRow("Datum:", self.job_date)
         basic_form.addRow("Činnost:", self.activity)
         basic_form.addRow("Klient:", self.client)
-        basic_form.addRow("Jméno / kontakt:", self.customer_name)
-        basic_form.addRow("Adresa zakázky:", self.service_address)
+        basic_form.addRow("Jméno:", self.customer_name)
+        basic_form.addRow("Adresa:", self.service_address)
         basic_form.addRow("Telefon:", self.phone)
         basic_form.addRow("E-mail:", self.email)
         basic_form.addRow("Co se dělalo:", self.service_summary)
@@ -262,21 +262,63 @@ class JobDialog(QDialog):
         self.document_type = QComboBox()
         _add_code_items(self.document_type, DOCUMENT_LABELS)
 
-        self.invoice_number = QLineEdit()
-        self.invoice_number.setReadOnly(True)
+        # Faktura: výběr existujících faktur, zamčený proti náhodné změně.
+        self.invoice_combo = QComboBox()
+        self.invoice_combo.addItem("(bez vybrané faktury)", None)
+        for invoice in self.repo.list_assignable_invoices(self.job.get("id")):
+            title = invoice.get("number") or f"Faktura #{invoice['id']}"
+            buyer = (invoice.get("buyer_name") or "").strip()
+            if buyer:
+                title += f" · {buyer}"
+            title += f" · {cents_to_text(invoice.get('total_cents') or 0)}"
+            self.invoice_combo.addItem(title, invoice["id"])
+
+        self.invoice_lock = QPushButton("🔒")
+        self.invoice_lock.setCheckable(True)
+        self.invoice_lock.setChecked(False)
+        self.invoice_lock.setFixedWidth(38)
+        self.invoice_lock.setToolTip("Odemknout změnu faktury")
+        self.invoice_combo.setEnabled(False)
+
+        invoice_row_layout = QHBoxLayout()
+        invoice_row_layout.setContentsMargins(0, 0, 0, 0)
+        invoice_row_layout.addWidget(self.invoice_combo, 1)
+        invoice_row_layout.addWidget(self.invoice_lock)
+        self.invoice_row = QWidget()
+        self.invoice_row.setLayout(invoice_row_layout)
 
         pay_form.addRow("Cena práce:", self.price)
         pay_form.addRow("Dýško:", self.tip)
-        pay_form.addRow("Cestovné:", self.travel)
+        pay_form.addRow("Doprava (Kč):", self.travel)
         pay_form.addRow("Ujeto:", self.distance)
         pay_form.addRow("Platba:", self.payment_method)
         pay_form.addRow("Stav:", self.payment_status)
         pay_form.addRow("Datum zaplacení:", self.paid_at)
         pay_form.addRow("Doklad:", self.document_type)
-        pay_form.addRow("Číslo faktury:", self.invoice_number)
+        self.invoice_label = QLabel("Faktura:")
+        pay_form.addRow(self.invoice_label, self.invoice_row)
         top_row.addWidget(payment_group, 1)
 
-        # DDD
+        # Poznámka má být vidět dřív než nepovinný detail.
+        note_group = QGroupBox("Poznámka záznamu")
+        note_layout = QVBoxLayout(note_group)
+        self.note = QTextEdit()
+        self.note.setMinimumHeight(105)
+        self.note.setPlaceholderText("Poznámka k zakázce…")
+        note_layout.addWidget(self.note)
+        page_layout.addWidget(note_group)
+
+        # Nepovinný detail záznamu je standardně schovaný.
+        self.detail_button = QPushButton("▸ Zobrazit detail záznamu")
+        self.detail_button.setCheckable(True)
+        self.detail_button.setChecked(False)
+        self.detail_button.setStyleSheet("text-align: left; font-weight: 600; padding: 7px;")
+        page_layout.addWidget(self.detail_button)
+
+        self.detail_container = QWidget()
+        detail_layout = QVBoxLayout(self.detail_container)
+        detail_layout.setContentsMargins(0, 0, 0, 0)
+
         self.ddd_group = QGroupBox("DDD – detail zásahu")
         ddd_form = QFormLayout(self.ddd_group)
         self.ddd_intervention_type = QLineEdit()
@@ -301,9 +343,8 @@ class JobDialog(QDialog):
         ddd_form.addRow("Číslo protokolu:", self.ddd_protocol_no)
         ddd_form.addRow("Fáze / opakování:", self.ddd_stage)
         ddd_form.addRow("Další zásah:", next_widget)
-        page_layout.addWidget(self.ddd_group)
+        detail_layout.addWidget(self.ddd_group)
 
-        # Dočista
         self.doc_group = QGroupBox("Dočista – detail čištění")
         doc_form = QFormLayout(self.doc_group)
         self.doc_cleaning_type = QLineEdit()
@@ -318,17 +359,10 @@ class JobDialog(QDialog):
         doc_form.addRow("Typ čištění:", self.doc_cleaning_type)
         doc_form.addRow("Počet kusů:", self.doc_quantity)
         doc_form.addRow("Plocha:", self.doc_area)
-        page_layout.addWidget(self.doc_group)
+        detail_layout.addWidget(self.doc_group)
 
-        # Poznámka je součást stejného formuláře
-        note_group = QGroupBox("Poznámka")
-        note_layout = QVBoxLayout(note_group)
-        self.note = QTextEdit()
-        self.note.setMinimumHeight(110)
-        self.note.setPlaceholderText("Poznámky k zakázce…")
-        note_layout.addWidget(self.note)
-        page_layout.addWidget(note_group)
-
+        self.detail_container.setVisible(False)
+        page_layout.addWidget(self.detail_container)
         page_layout.addStretch(1)
 
         buttons = QDialogButtonBox(
@@ -343,6 +377,9 @@ class JobDialog(QDialog):
         self.activity.currentIndexChanged.connect(self._activity_changed)
         self.client.currentIndexChanged.connect(self._client_changed)
         self.payment_status.currentIndexChanged.connect(self._payment_status_changed)
+        self.document_type.currentIndexChanged.connect(self._document_type_changed)
+        self.invoice_lock.toggled.connect(self._invoice_lock_changed)
+        self.detail_button.toggled.connect(self._detail_toggled)
         self.ddd_next_enabled.toggled.connect(self.ddd_next_visit.setEnabled)
         QShortcut(QKeySequence.StandardKey.Save, self).activated.connect(self.accept)
 
@@ -350,6 +387,9 @@ class JobDialog(QDialog):
         self._loading = False
         self._activity_changed()
         self._payment_status_changed()
+        self._document_type_changed()
+        self._invoice_lock_changed(False)
+        self._detail_toggled(False)
 
     def _load(self) -> None:
         j = self.job
@@ -376,7 +416,12 @@ class JobDialog(QDialog):
         _set_combo_code(self.payment_status, j.get("payment_status") or "PAID")
         self.paid_at.setDate(iso_to_qdate(j.get("paid_at") or j.get("job_date")))
         _set_combo_code(self.document_type, j.get("document_type") or "NONE")
-        self.invoice_number.setText(j.get("invoice_number") or "")
+
+        current_invoice_id = j.get("invoice_id")
+        if current_invoice_id:
+            idx = self.invoice_combo.findData(current_invoice_id)
+            if idx >= 0:
+                self.invoice_combo.setCurrentIndex(idx)
 
         self.ddd_intervention_type.setText(j.get("ddd_intervention_type") or "")
         self.ddd_pest.setText(j.get("ddd_pest") or "")
@@ -407,6 +452,25 @@ class JobDialog(QDialog):
 
     def _payment_status_changed(self) -> None:
         self.paid_at.setEnabled(self.payment_status.currentData() == "PAID")
+
+    def _document_type_changed(self) -> None:
+        visible = self.document_type.currentData() == "INVOICE"
+        self.invoice_label.setVisible(visible)
+        self.invoice_row.setVisible(visible)
+
+    def _invoice_lock_changed(self, unlocked: bool) -> None:
+        self.invoice_combo.setEnabled(bool(unlocked))
+        self.invoice_lock.setText("🔓" if unlocked else "🔒")
+        self.invoice_lock.setToolTip(
+            "Zamknout změnu faktury" if unlocked else "Odemknout změnu faktury"
+        )
+
+    def _detail_toggled(self, expanded: bool) -> None:
+        self.detail_container.setVisible(bool(expanded))
+        self.detail_button.setText(
+            "▾ Skrýt detail záznamu" if expanded else "▸ Zobrazit detail záznamu"
+        )
+        self._activity_changed()
 
     def _client_changed(self) -> None:
         if self._loading:
@@ -443,6 +507,12 @@ class JobDialog(QDialog):
         super().accept()
 
     def data(self) -> dict:
+        invoice_unlocked = self.invoice_lock.isChecked()
+        selected_invoice_id = (
+            self.invoice_combo.currentData()
+            if self.document_type.currentData() == "INVOICE"
+            else None
+        )
         return {
             "job_date": qdate_to_iso(self.job_date.date()),
             "activity": self.activity.currentData(),
@@ -464,6 +534,8 @@ class JobDialog(QDialog):
                 else None
             ),
             "document_type": self.document_type.currentData(),
+            "selected_invoice_id": selected_invoice_id,
+            "invoice_unlocked": invoice_unlocked,
             "source": self.source.currentText().strip(),
             "note": self.note.toPlainText().strip(),
             "ddd_intervention_type": self.ddd_intervention_type.text().strip(),

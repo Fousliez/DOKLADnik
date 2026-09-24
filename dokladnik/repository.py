@@ -498,6 +498,44 @@ class Repository:
             if own:
                 conn.close()
 
+    def create_blank_invoice(self) -> int:
+        """Vytvoří samostatnou fakturu bez vazby na zakázku."""
+        with self.db.transaction() as conn:
+            today = date.today()
+            due_row = conn.execute(
+                "SELECT value FROM app_settings WHERE key='invoice_due_days'"
+            ).fetchone()
+            try:
+                due_days = int(due_row[0]) if due_row else 14
+            except ValueError:
+                due_days = 14
+
+            number = self.next_invoice_number(today.year, conn)
+            stamp = now_iso()
+            cur = conn.execute(
+                """
+                INSERT INTO invoices(
+                    number, job_id, client_id, issue_date, due_date,
+                    buyer_name, buyer_address, buyer_ico, buyer_dic,
+                    payment_method, payment_status, paid_at, note,
+                    created_at, updated_at
+                ) VALUES (?, NULL, NULL, ?, ?, '', '', '', '', 'BANK', 'UNPAID', NULL, '', ?, ?)
+                """,
+                (
+                    number,
+                    today.isoformat(),
+                    (today + timedelta(days=due_days)).isoformat(),
+                    stamp,
+                    stamp,
+                ),
+            )
+            invoice_id = int(cur.lastrowid)
+            after = row_dict(
+                conn.execute("SELECT * FROM invoices WHERE id=?", (invoice_id,)).fetchone()
+            )
+            self._audit(conn, "invoice", invoice_id, "CREATE", None, after)
+            return invoice_id
+
     def create_invoice_from_job(self, job_id: int) -> int:
         with self.db.transaction() as conn:
             existing = conn.execute(

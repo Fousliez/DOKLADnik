@@ -94,6 +94,36 @@ class RepositoryTest(unittest.TestCase):
         self.assertFalse(any(x["id"] == client_id for x in self.repo.list_clients()))
         self.assertTrue(any(x["id"] == client_id for x in self.repo.list_clients(include_deleted=True)))
 
+    def test_invoice_can_be_safely_assigned_to_job(self):
+        first_job = self.repo.save_job(
+            {
+                "job_date": "2026-09-24",
+                "activity": "DDD",
+                "customer_name": "První",
+                "service_summary": "Test",
+            }
+        )
+        second_job = self.repo.save_job(
+            {
+                "job_date": "2026-09-24",
+                "activity": "DOCISTA",
+                "customer_name": "Druhý",
+                "service_summary": "Test",
+            }
+        )
+        invoice_id = self.repo.create_invoice_from_job(first_job)
+
+        with self.assertRaises(ValueError):
+            self.repo.assign_invoice_to_job(second_job, invoice_id)
+
+        self.repo.assign_invoice_to_job(first_job, None)
+        available = self.repo.list_assignable_invoices(second_job)
+        self.assertTrue(any(row["id"] == invoice_id for row in available))
+
+        self.repo.assign_invoice_to_job(second_job, invoice_id)
+        invoice = self.repo.get_invoice(invoice_id)
+        self.assertEqual(invoice["job_id"], second_job)
+
 
 if __name__ == "__main__":
     unittest.main()

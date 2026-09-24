@@ -219,7 +219,9 @@ class JobDialog(QDialog):
         self.service_address.setMaximumHeight(62)
         self.phone = QLineEdit()
         self.email = QLineEdit()
-        self.service_summary = QLineEdit()
+        self.service_summary = QTextEdit()
+        self.service_summary.setMinimumHeight(85)
+        self.service_summary.setMaximumHeight(120)
 
         self.source = QComboBox()
         self.source.setEditable(True)
@@ -405,7 +407,7 @@ class JobDialog(QDialog):
         self.service_address.setPlainText(j.get("service_address") or "")
         self.phone.setText(j.get("phone") or "")
         self.email.setText(j.get("email") or "")
-        self.service_summary.setText(j.get("service_summary") or "")
+        self.service_summary.setPlainText(j.get("service_summary") or "")
         self.source.setCurrentText(j.get("source") or "")
 
         self.price.setText(self._editable_money(j.get("price_cents")))
@@ -496,7 +498,7 @@ class JobDialog(QDialog):
         except ValueError:
             QMessageBox.warning(self, "Neplatná částka", "Částky musí být čísla.")
             return
-        if not self.customer_name.text().strip() and not self.service_summary.text().strip():
+        if not self.customer_name.text().strip() and not self.service_summary.toPlainText().strip():
             answer = QMessageBox.question(
                 self,
                 "Prázdná zakázka",
@@ -521,7 +523,7 @@ class JobDialog(QDialog):
             "service_address": self.service_address.toPlainText().strip(),
             "phone": self.phone.text().strip(),
             "email": self.email.text().strip(),
-            "service_summary": self.service_summary.text().strip(),
+            "service_summary": self.service_summary.toPlainText().strip(),
             "price_cents": money_to_cents(self.price.text()),
             "tip_cents": money_to_cents(self.tip.text()),
             "travel_cents": money_to_cents(self.travel.text()),

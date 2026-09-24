@@ -3,9 +3,11 @@ from __future__ import annotations
 from html import escape
 from pathlib import Path
 
-from PySide6.QtGui import QTextDocument
+from PySide6.QtCore import QUrl
+from PySide6.QtGui import QImage, QTextDocument
 from PySide6.QtPrintSupport import QPrinter
 
+from .qr_payment import build_spd, invoice_number_to_vs, qr_png_bytes, resolve_iban
 from .repository import Repository
 
 
@@ -42,6 +44,40 @@ def generate_invoice_pdf(repo: Repository, invoice_id: int, target: Path) -> Pat
     total = sum(int(x.get("total_cents") or 0) for x in items)
     paid = invoice.get("payment_status") == "PAID"
     status = "ZAPLACENO" if paid else "NEZAPLACENO"
+
+    qr_html = ""
+    qr_image = None
+    if bool(invoice.get("qr_payment")):
+        iban = resolve_iban(seller)
+        if not iban:
+            raise ValueError(
+                "QR platbu nelze vytvořit: v Nastavení chybí platný IBAN nebo český bankovní účet."
+            )
+        payload = build_spd(
+            iban=iban,
+            amount_cents=total,
+            due_date=invoice.get("due_date"),
+            invoice_number=invoice.get("number") or "",
+        )
+        qr_image = QImage.fromData(qr_png_bytes(payload), "PNG")
+        if qr_image.isNull():
+            raise ValueError("QR kód se nepodařilo vytvořit.")
+        vs = invoice_number_to_vs(invoice.get("number") or "")
+        vs_line = f"<br>VS: <b>{_e(vs)}</b>" if vs else ""
+        qr_html = (
+            "<table style='margin-top:12px;'>"
+            "<tr>"
+            "<td width='65%' style='vertical-align:middle;'>"
+            "<b>QR platba</b><br>"
+            "Naskenujte v mobilním bankovnictví."
+            f"{vs_line}"
+            "</td>"
+            "<td width='35%' class='right'>"
+            "<img src='dokladnik-qr.png' width='132' height='132'>"
+            "</td>"
+            "</tr>"
+            "</table>"
+        )
 
     html = f"""
     <html>
@@ -124,6 +160,8 @@ def generate_invoice_pdf(repo: Repository, invoice_id: int, target: Path) -> Pat
         </tr>
       </table>
 
+      {qr_html}
+
       <p>{_e(invoice.get('note'))}</p>
     </body>
     </html>
@@ -137,6 +175,12 @@ def generate_invoice_pdf(repo: Repository, invoice_id: int, target: Path) -> Pat
     printer.setOutputFileName(str(target))
 
     document = QTextDocument()
+    if qr_image is not None:
+        document.addResource(
+            QTextDocument.ResourceType.ImageResource,
+            QUrl("dokladnik-qr.png"),
+            qr_image,
+        )
     document.setHtml(html)
     document.print_(printer)
     return target

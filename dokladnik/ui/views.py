@@ -286,7 +286,7 @@ class JobsWidget(QWidget):
                 Column("service_summary", "Co se dělalo"),
                 Column("price_cents", "Cena", _money, RIGHT),
                 Column("tip_cents", "Dýško", _money, RIGHT),
-                Column("travel_cents", "Cesta", _money, RIGHT),
+                Column("travel_cents", "Doprava", _money, RIGHT),
                 Column("total_cents", "Celkem", _money, RIGHT),
                 Column("payment_method", "Platba", _payment_method),
                 Column("payment_status", "Zaplacení", _payment_status),
@@ -346,6 +346,8 @@ class JobsWidget(QWidget):
         if dialog.exec():
             data = dialog.data()
             job_id = self.repo.save_job(data)
+            if data.get("invoice_unlocked"):
+                self.repo.assign_invoice_to_job(job_id, data.get("selected_invoice_id"))
             if data.get("source"):
                 self.repo.add_lookup_value("customer_source", data["source"])
             self.refresh(select_id=job_id)
@@ -362,6 +364,8 @@ class JobsWidget(QWidget):
         if dialog.exec():
             data = dialog.data()
             self.repo.save_job(data, job_id)
+            if data.get("invoice_unlocked"):
+                self.repo.assign_invoice_to_job(job_id, data.get("selected_invoice_id"))
             if data.get("source"):
                 self.repo.add_lookup_value("customer_source", data["source"])
             self.refresh(select_id=job_id)

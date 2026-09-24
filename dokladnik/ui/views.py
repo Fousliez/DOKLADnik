@@ -261,7 +261,6 @@ class JobsWidget(QWidget):
         self.add_btn = QPushButton("+ Nová zakázka")
         self.edit_btn = QPushButton("Upravit")
         self.delete_btn = QPushButton("Smazat")
-        self.invoice_btn = QPushButton("Faktura")
         self.refresh_btn = QPushButton("Obnovit")
         self.search = QLineEdit()
         self.search.setPlaceholderText("Hledat jméno, adresu, telefon, službu, fakturu…")
@@ -269,7 +268,7 @@ class JobsWidget(QWidget):
         for code in ("ALL", "DDD", "DOCISTA"):
             self.activity.addItem(ACTIVITY_LABELS[code], code)
 
-        for w in (self.add_btn, self.edit_btn, self.delete_btn, self.invoice_btn, self.refresh_btn):
+        for w in (self.add_btn, self.edit_btn, self.delete_btn, self.refresh_btn):
             bar.addWidget(w)
         bar.addSpacing(10)
         bar.addWidget(QLabel("Činnost:"))
@@ -304,13 +303,13 @@ class JobsWidget(QWidget):
         self.add_btn.clicked.connect(self.add_job)
         self.edit_btn.clicked.connect(self.edit_job)
         self.delete_btn.clicked.connect(self.delete_job)
-        self.invoice_btn.clicked.connect(self.invoice_for_job)
         self.refresh_btn.clicked.connect(self.refresh)
         self.table.doubleClicked.connect(lambda _idx: self.edit_job())
         self.search.textChanged.connect(self.refresh)
         self.activity.currentIndexChanged.connect(self.refresh)
 
         self._shortcut("Ctrl+N", self.add_job)
+        self._shortcut("Ctrl+N", self.add_invoice)
         self._shortcut("Ctrl+F", self.search.setFocus)
         self._shortcut("Delete", self.delete_job)
         self._shortcut("F5", self.refresh)
@@ -528,6 +527,7 @@ class InvoicesWidget(QWidget):
         self.repo = repo
         outer = QVBoxLayout(self)
         bar = QHBoxLayout()
+        self.add_btn = QPushButton("+ Nová faktura")
         self.edit_btn = QPushButton("Upravit")
         self.pdf_btn = QPushButton("PDF")
         self.delete_btn = QPushButton("Smazat")
@@ -537,7 +537,7 @@ class InvoicesWidget(QWidget):
             self.activity.addItem(ACTIVITY_LABELS[code], code)
         self.search = QLineEdit()
         self.search.setPlaceholderText("Hledat číslo faktury, odběratele, adresu, IČO…")
-        for w in (self.edit_btn, self.pdf_btn, self.delete_btn, self.refresh_btn):
+        for w in (self.add_btn, self.edit_btn, self.pdf_btn, self.delete_btn, self.refresh_btn):
             bar.addWidget(w)
         bar.addSpacing(10)
         bar.addWidget(QLabel("Činnost:"))
@@ -565,6 +565,7 @@ class InvoicesWidget(QWidget):
         self.count_label = QLabel()
         outer.addWidget(self.count_label)
 
+        self.add_btn.clicked.connect(self.add_invoice)
         self.edit_btn.clicked.connect(self.edit_invoice)
         self.pdf_btn.clicked.connect(self.export_pdf)
         self.delete_btn.clicked.connect(self.delete_invoice)
@@ -602,6 +603,22 @@ class InvoicesWidget(QWidget):
                     break
         self.table.resizeColumnsToContents()
         self.table.horizontalHeader().setStretchLastSection(True)
+
+    def add_invoice(self) -> None:
+        try:
+            invoice_id = self.repo.create_blank_invoice()
+            invoice = self.repo.get_invoice(invoice_id)
+            dialog = InvoiceDialog(self.repo, invoice, self)
+            if dialog.exec():
+                data, items = dialog.data_and_items()
+                self.repo.save_invoice(invoice_id, data, items)
+                self.refresh(select_id=invoice_id)
+                self.data_changed.emit()
+            else:
+                self.repo.soft_delete_invoice(invoice_id)
+                self.refresh()
+        except Exception as exc:
+            QMessageBox.critical(self, "Faktura", str(exc))
 
     def edit_invoice(self) -> None:
         invoice_id = self.selected_id()

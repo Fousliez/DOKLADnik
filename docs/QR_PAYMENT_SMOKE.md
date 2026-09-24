@@ -1,0 +1,1 @@
+# QR payment smoke test

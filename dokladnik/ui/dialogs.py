@@ -26,6 +26,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ..qr_payment import resolve_iban
+
 from .common import (
     DOCUMENT_LABELS,
     PAYMENT_METHOD_LABELS,
@@ -167,6 +169,7 @@ class ClientDialog(QDialog):
             "regular": self.regular.isChecked(),
             "source": self.source.currentText().strip(),
             "note": self.note.toPlainText().strip(),
+            "qr_payment": self.qr_payment.isChecked(),
         }
 
 
@@ -589,6 +592,11 @@ class InvoiceDialog(QDialog):
         self.paid_at.setCalendarPopup(True)
         self.paid_at.setDisplayFormat("dd.MM.yyyy")
 
+        self.qr_payment = QCheckBox("Přidat QR platbu do PDF")
+        self.qr_payment.setToolTip(
+            "QR Platba pro bankovní převod. Účet se bere z Nastavení."
+        )
+
         form.addRow("Číslo faktury:", self.number)
         form.addRow("Vystavení:", self.issue_date)
         form.addRow("Splatnost:", self.due_date)
@@ -599,6 +607,7 @@ class InvoiceDialog(QDialog):
         form.addRow("Platba:", self.payment_method)
         form.addRow("Stav:", self.payment_status)
         form.addRow("Datum zaplacení:", self.paid_at)
+        form.addRow("", self.qr_payment)
         outer.addLayout(form)
 
         outer.addWidget(QLabel("<b>Položky</b>"))
@@ -652,6 +661,7 @@ class InvoiceDialog(QDialog):
         _set_combo_code(self.payment_method, i.get("payment_method") or "BANK")
         _set_combo_code(self.payment_status, i.get("payment_status") or "UNPAID")
         self.paid_at.setDate(iso_to_qdate(i.get("paid_at") or i.get("issue_date")))
+        self.qr_payment.setChecked(bool(i.get("qr_payment")))
         self.note.setPlainText(i.get("note") or "")
         self._updating = True
         for item in i.get("items", []):
@@ -705,10 +715,37 @@ class InvoiceDialog(QDialog):
             QMessageBox.warning(self, "Chybí číslo", "Faktura musí mít číslo.")
             return
         try:
-            self.data_and_items()
+            _data, items = self.data_and_items()
         except ValueError:
             QMessageBox.warning(self, "Neplatná položka", "Zkontroluj množství a cenu položek.")
             return
+
+        if self.qr_payment.isChecked():
+            if self.payment_method.currentData() != "BANK":
+                QMessageBox.warning(
+                    self,
+                    "QR platba",
+                    "QR platba dává smysl jen pro platbu převodem. Zvol způsob platby Převod.",
+                )
+                return
+            if not resolve_iban(self.repo.get_settings()):
+                QMessageBox.warning(
+                    self,
+                    "QR platba",
+                    "Pro QR platbu vyplň v Nastavení platný IBAN nebo český bankovní účet.",
+                )
+                return
+            total = 0
+            for item in items:
+                total += int(round(float(item.get("quantity") or 1) * int(item.get("unit_price_cents") or 0)))
+            if total <= 0:
+                QMessageBox.warning(
+                    self,
+                    "QR platba",
+                    "QR platba potřebuje částku vyšší než 0 Kč.",
+                )
+                return
+
         super().accept()
 
     def data_and_items(self) -> tuple[dict, list[dict]]:

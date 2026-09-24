@@ -16,8 +16,8 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSpinBox,
-    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
@@ -176,15 +176,27 @@ class JobDialog(QDialog):
         self.job = job or {}
         self._loading = True
         self.setWindowTitle("Zakázka")
-        self.resize(720, 720)
+        self.resize(1040, 820)
+        self.setMinimumSize(820, 650)
 
         outer = QVBoxLayout(self)
-        tabs = QTabWidget()
-        outer.addWidget(tabs)
 
-        # Základ
-        basic = QWidget()
-        basic_form = QFormLayout(basic)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        outer.addWidget(scroll, 1)
+
+        page = QWidget()
+        scroll.setWidget(page)
+        page_layout = QVBoxLayout(page)
+
+        top_row = QHBoxLayout()
+        page_layout.addLayout(top_row)
+
+        # Základ zakázky
+        basic_group = QGroupBox("Zakázka")
+        basic_form = QFormLayout(basic_group)
+
         self.job_date = QDateEdit()
         self.job_date.setCalendarPopup(True)
         self.job_date.setDisplayFormat("dd.MM.yyyy")
@@ -203,7 +215,7 @@ class JobDialog(QDialog):
 
         self.customer_name = QLineEdit()
         self.service_address = QTextEdit()
-        self.service_address.setMaximumHeight(65)
+        self.service_address.setMaximumHeight(62)
         self.phone = QLineEdit()
         self.email = QLineEdit()
         self.service_summary = QLineEdit()
@@ -221,11 +233,12 @@ class JobDialog(QDialog):
         basic_form.addRow("E-mail:", self.email)
         basic_form.addRow("Co se dělalo:", self.service_summary)
         basic_form.addRow("Zdroj zákazníka:", self.source)
-        tabs.addTab(basic, "Zakázka")
+        top_row.addWidget(basic_group, 1)
 
-        # Platba
-        payment = QWidget()
-        pay_form = QFormLayout(payment)
+        # Platba a doklad
+        payment_group = QGroupBox("Platba a doklad")
+        pay_form = QFormLayout(payment_group)
+
         self.price = _money_edit()
         self.tip = _money_edit()
         self.travel = _money_edit()
@@ -260,13 +273,10 @@ class JobDialog(QDialog):
         pay_form.addRow("Datum zaplacení:", self.paid_at)
         pay_form.addRow("Doklad:", self.document_type)
         pay_form.addRow("Číslo faktury:", self.invoice_number)
-        tabs.addTab(payment, "Platba a doklad")
+        top_row.addWidget(payment_group, 1)
 
-        # DDD / Dočista
-        details = QWidget()
-        details_layout = QVBoxLayout(details)
-
-        self.ddd_group = QGroupBox("DDD")
+        # DDD
+        self.ddd_group = QGroupBox("DDD – detail zásahu")
         ddd_form = QFormLayout(self.ddd_group)
         self.ddd_intervention_type = QLineEdit()
         self.ddd_pest = QLineEdit()
@@ -280,6 +290,7 @@ class JobDialog(QDialog):
         next_row = QHBoxLayout()
         next_row.addWidget(self.ddd_next_enabled)
         next_row.addWidget(self.ddd_next_visit)
+        next_row.addStretch(1)
         next_widget = QWidget()
         next_widget.setLayout(next_row)
 
@@ -289,9 +300,10 @@ class JobDialog(QDialog):
         ddd_form.addRow("Číslo protokolu:", self.ddd_protocol_no)
         ddd_form.addRow("Fáze / opakování:", self.ddd_stage)
         ddd_form.addRow("Další zásah:", next_widget)
-        details_layout.addWidget(self.ddd_group)
+        page_layout.addWidget(self.ddd_group)
 
-        self.doc_group = QGroupBox("Dočista")
+        # Dočista
+        self.doc_group = QGroupBox("Dočista – detail čištění")
         doc_form = QFormLayout(self.doc_group)
         self.doc_cleaning_type = QLineEdit()
         self.doc_quantity = QDoubleSpinBox()
@@ -301,20 +313,22 @@ class JobDialog(QDialog):
         self.doc_area.setRange(0, 100000)
         self.doc_area.setDecimals(1)
         self.doc_area.setSuffix(" m²")
+
         doc_form.addRow("Typ čištění:", self.doc_cleaning_type)
         doc_form.addRow("Počet kusů:", self.doc_quantity)
         doc_form.addRow("Plocha:", self.doc_area)
-        details_layout.addWidget(self.doc_group)
-        details_layout.addStretch(1)
-        tabs.addTab(details, "DDD / Dočista")
+        page_layout.addWidget(self.doc_group)
 
-        # Poznámka
-        note_page = QWidget()
-        note_layout = QVBoxLayout(note_page)
+        # Poznámka je součást stejného formuláře
+        note_group = QGroupBox("Poznámka")
+        note_layout = QVBoxLayout(note_group)
         self.note = QTextEdit()
+        self.note.setMinimumHeight(110)
         self.note.setPlaceholderText("Poznámky k zakázce…")
         note_layout.addWidget(self.note)
-        tabs.addTab(note_page, "Poznámka")
+        page_layout.addWidget(note_group)
+
+        page_layout.addStretch(1)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel

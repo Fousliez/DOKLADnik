@@ -309,7 +309,6 @@ class JobsWidget(QWidget):
         self.activity.currentIndexChanged.connect(self.refresh)
 
         self._shortcut("Ctrl+N", self.add_job)
-        self._shortcut("Ctrl+N", self.add_invoice)
         self._shortcut("Ctrl+F", self.search.setFocus)
         self._shortcut("Delete", self.delete_job)
         self._shortcut("F5", self.refresh)
@@ -384,22 +383,6 @@ class JobsWidget(QWidget):
             self.refresh()
             self.data_changed.emit()
 
-    def invoice_for_job(self) -> None:
-        job_id = self.selected_id()
-        if not job_id:
-            QMessageBox.information(self, "Faktura", "Nejdřív vyber zakázku.")
-            return
-        try:
-            invoice_id = self.repo.create_invoice_from_job(job_id)
-            invoice = self.repo.get_invoice(invoice_id)
-            dialog = InvoiceDialog(self.repo, invoice, self)
-            if dialog.exec():
-                data, items = dialog.data_and_items()
-                self.repo.save_invoice(invoice_id, data, items)
-            self.refresh(select_id=job_id)
-            self.data_changed.emit()
-        except Exception as exc:
-            QMessageBox.critical(self, "Faktura", str(exc))
 
 
 class ClientsWidget(QWidget):
@@ -574,6 +557,7 @@ class InvoicesWidget(QWidget):
         self.search.textChanged.connect(self.refresh)
         self.table.doubleClicked.connect(lambda _idx: self.edit_invoice())
 
+        self._shortcut("Ctrl+N", self.add_invoice)
         self._shortcut("Ctrl+F", self.search.setFocus)
         self._shortcut("Delete", self.delete_invoice)
         self._shortcut("F5", self.refresh)
@@ -606,17 +590,14 @@ class InvoicesWidget(QWidget):
 
     def add_invoice(self) -> None:
         try:
-            invoice_id = self.repo.create_blank_invoice()
-            invoice = self.repo.get_invoice(invoice_id)
-            dialog = InvoiceDialog(self.repo, invoice, self)
-            if dialog.exec():
-                data, items = dialog.data_and_items()
-                self.repo.save_invoice(invoice_id, data, items)
-                self.refresh(select_id=invoice_id)
-                self.data_changed.emit()
-            else:
-                self.repo.soft_delete_invoice(invoice_id)
-                self.refresh()
+            draft = self.repo.new_invoice_draft()
+            dialog = InvoiceDialog(self.repo, draft, self)
+            if not dialog.exec():
+                return
+            data, items = dialog.data_and_items()
+            invoice_id = self.repo.create_invoice(data, items)
+            self.refresh(select_id=invoice_id)
+            self.data_changed.emit()
         except Exception as exc:
             QMessageBox.critical(self, "Faktura", str(exc))
 
